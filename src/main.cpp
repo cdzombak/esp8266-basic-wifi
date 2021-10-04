@@ -1,10 +1,11 @@
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
-#include <ESP8266mDNS.h>
-#include <AsyncPing.h>
+#include <ESP8266WiFi.h>    // https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/readme.html
+#include <ESP8266mDNS.h>    // https://github.com/esp8266/Arduino/tree/master/libraries/ESP8266mDNS
+#include <ESP8266Ping.h>    // https://github.com/dancol90/ESP8266Ping
+#include <InfluxDbClient.h> // https://github.com/tobiasschuerg/InfluxDB-Client-for-Arduino
 
 #define _TASK_SLEEP_ON_IDLE_RUN
-#include <TaskScheduler.h>
+#include <TaskScheduler.h> // https://github.com/arkhipenko/TaskScheduler
 
 #include "config.h"  // git-ignored file for configuration including secrets
 
@@ -17,9 +18,8 @@
 
 #define SERIAL_BAUD 115200
 
+// Scheduler & callback method prototypes
 Scheduler ts;
-
-// Callback method prototypes
 void connectInit();
 void ledCallback();
 bool onLedEnable();
@@ -29,38 +29,37 @@ void ledOff();
 bool onMDNSEnable();
 void mDNSCallback();
 void connMonitorCallback();
-void pingCallback();
+void loggerCallback();
 
-// Ping (our "useful work")
-AsyncPing ping;
-#define PING_COUNT         (2)
-#define PING_TIMEOUT       (TASK_SECOND/3)
-#define PING_TASK_INTERVAL (PING_TIMEOUT*PING_COUNT + TASK_MILLISECOND*100)
-//#define PING_PRINT_SUMMARY
+// Ping task + Influx logging
+#define PING_COUNT   (2)
+#define PING_TARGET  IPAddress(8, 8, 4, 4)
+#define LOGGER_TASK_INTERVAL (TASK_SECOND*5)
+#ifdef CFG_INFLUXDB_1_DB_NAME
+InfluxDBClient influxClient(CFG_INFLUXDB_URL, CFG_INFLUXDB_1_DB_NAME);
+#else
+InfluxDBClient influxClient(CFG_INFLUXDB_URL, CFG_INFLUXDB_ORG, CFG_INFLUXDB_BUCKET, CFG_INFLUXDB_TOKEN);
+#endif
+
+// LED
+bool ledState;
+long ledTimeOff, ledTimeOn;
+#define CONNECTED_LED_TIME_ON   (TASK_SECOND/4)
+#define CONNECTED_LED_TIME_OFF  (TASK_SECOND)
+#define CONNECTING_LED_TIME_ON  (TASK_SECOND/5)
+#define CONNECTING_LED_TIME_OFF (TASK_SECOND/5)
 
 // Tasks
 Task  tConnect     (TASK_SECOND, TASK_FOREVER, &connectInit, &ts, true);  // handles waiting on initial WiFi connection
 Task  tLED         (TASK_IMMEDIATE, TASK_FOREVER, &ledCallback, &ts, false, &onLedEnable, &onLedDisable);
 Task  tMDNS        (TASK_MILLISECOND*50, TASK_FOREVER, &mDNSCallback, &ts, false, &onMDNSEnable, nullptr);
 Task  tConnMonitor (TASK_SECOND, TASK_FOREVER, &connMonitorCallback, &ts, false);
-Task  tPing        (PING_TASK_INTERVAL, TASK_FOREVER, &pingCallback, &ts, false);  // simulates starting our "useful work"
-
-// WiFi
-const char *ssid     = CFG_WIFI_ESSID;
-const char *pwd      = CFG_WIFI_PASSWORD;
-const char *hostname = CFG_HOSTNAME;
-
-// LED
-bool ledState;
-long ledTimeOff, ledTimeOn;
-#define CONNECTED_LED_TIME_ON   (TASK_SECOND/3)
-#define CONNECTED_LED_TIME_OFF  (TASK_SECOND)
-#define CONNECTING_LED_TIME_ON  (TASK_SECOND/4)
-#define CONNECTING_LED_TIME_OFF (TASK_SECOND/4)
+Task  tDataLogger  (LOGGER_TASK_INTERVAL, TASK_FOREVER, &loggerCallback, &ts, false);  // simulates starting our "useful work"
 
 void setup() {
     Serial.begin(SERIAL_BAUD);
     pinMode(LED_BUILTIN, OUTPUT);
+    influxClient.setWriteOptions(WriteOptions().bufferSize(12)); // 12 points == 1 minute of readings @ 5 second intervals
 }
 
 void loop() {
@@ -93,12 +92,12 @@ void connectWait() {
 */
 void connectInit() {
     Serial.print(F("Connecting to WiFi ("));
-    Serial.print(ssid);
+    Serial.print(CFG_WIFI_ESSID);
     Serial.println(F(")"));
 
     WiFi.mode(WIFI_STA);
-    WiFi.hostname(hostname);
-    WiFi.begin(ssid, pwd);
+    WiFi.hostname(CFG_HOSTNAME);
+    WiFi.begin(CFG_WIFI_ESSID, CFG_WIFI_PASSWORD);
     yield();  // esp8266 yield allows WiFi stack to run
 
     ledTimeOff = CONNECTING_LED_TIME_OFF;
@@ -112,7 +111,7 @@ void connectInit() {
  * Start the mDNS stack.
  */
 bool onMDNSEnable() {
-    return MDNS.begin(hostname);
+    return MDNS.begin(CFG_HOSTNAME);
 }
 
 /**
@@ -133,38 +132,31 @@ void connMonitorCallback() {
         ledTimeOff = CONNECTED_LED_TIME_OFF;
         ledTimeOn = CONNECTED_LED_TIME_ON;
         tLED.enableIfNot();
-        tPing.enableIfNot();
+        tDataLogger.enableIfNot();
     } else {
         Serial.print(millis()); Serial.print(F(": WiFi connection status: ")); Serial.println(status);
         ledTimeOff = CONNECTING_LED_TIME_OFF;
         ledTimeOn = CONNECTING_LED_TIME_ON;
         tLED.enableIfNot();
-        tPing.disable();
+        tDataLogger.disable();
     }
 }
 
 /**
  * Ping Google DNS (8.8.4.4), per configuration defined above.
+ * Log the results, plus uptime and WiFi status, to InfluxDB.
  * This simulates the "useful work" this project performs.
  */
-void pingCallback() {
-    // adapted from sample code in https://github.com/akaJes/AsyncPing README.
+void loggerCallback() {
+    bool pingSuccess = Ping.ping(PING_TARGET, PING_COUNT);
 
-    ping.on(true,[](const AsyncPingResponse& response){
-        IPAddress addr(response.addr); // to prevent with no const toString() in 2.3.0
-        if (response.answer)
-            Serial.printf_P(PSTR("%lu: %d bytes from %s: icmp_seq=%d ttl=%d time=%lu ms\n"), millis(), response.size, addr.toString().c_str(), response.icmp_seq, response.ttl, response.time);
-        else
-            Serial.printf_P(PSTR("%lu: no answer yet for %s icmp_seq=%d\n"), millis(), addr.toString().c_str(), response.icmp_seq);
-        return false; // do not stop
-    });
-    ping.on(false,[](const AsyncPingResponse& response){
-        IPAddress addr(response.addr); // to prevent with no const toString() in 2.3.0
-        Serial.printf_P(PSTR("%lu: total answer from %s sent %d recevied %d time %lu ms\n"), millis(), addr.toString().c_str(),response.total_sent,response.total_recv,response.total_time);
-        return true;
-    });
-
-    ping.begin(IPAddress(8, 8, 4, 4), PING_COUNT, PING_TIMEOUT);
+    Point pointDevice(CFG_MEASUREMENT_NAME);
+    pointDevice.addTag("device_name", CFG_DEVICE_NAME_TAG);
+    pointDevice.addField("wifi_rssi", WiFi.RSSI());
+    pointDevice.addField("uptime_ms", millis());
+    pointDevice.addField("ping_success", pingSuccess);
+    pointDevice.addField("ping_avg_time_ms", Ping.averageTime());
+    influxClient.writePoint(pointDevice);
 }
 
 /**
