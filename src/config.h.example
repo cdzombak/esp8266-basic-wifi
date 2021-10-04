@@ -1,0 +1,9 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#define CFG_WIFI_ESSID "xxxxxxxx"
+#define CFG_WIFI_PASSWORD "xxxxxxxx"
+
+#define CFG_HOSTNAME "esp8266"
+
+#endif //CONFIG_H
