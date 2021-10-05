@@ -7,6 +7,10 @@
 #define _TASK_SLEEP_ON_IDLE_RUN
 #include <TaskScheduler.h> // https://github.com/arkhipenko/TaskScheduler
 
+#define TIMER_INTERRUPT_DEBUG         0
+#define _TIMERINTERRUPT_LOGLEVEL_     0
+#include "ESP8266TimerInterrupt.h" // https://github.com/khoih-prog/ESP8266TimerInterrupt v1.4.0 (PlatformIO listing is outdated)
+
 #include "config.h"  // git-ignored file for configuration including secrets
 
 // Goal here is to:
@@ -18,18 +22,18 @@
 
 #define SERIAL_BAUD 115200
 
+// Hardware interrupt-based timer, for LED management
+ESP8266Timer ITimer;
+
 // Scheduler & callback method prototypes
 Scheduler ts;
 void connectInit();
-void ledCallback();
-bool onLedEnable();
-void onLedDisable();
-void ledOn();
-void ledOff();
 bool onMDNSEnable();
 void mDNSCallback();
 void connMonitorCallback();
 void loggerCallback();
+void ledTimerISR();
+void startLEDBlink();
 
 // Ping task + Influx logging
 #define PING_COUNT   (2)
@@ -46,8 +50,9 @@ InfluxDBClient influxClient(CFG_INFLUXDB_URL, CFG_INFLUXDB_1_DB_NAME);
 InfluxDBClient influxClient(CFG_INFLUXDB_URL, CFG_INFLUXDB_ORG, CFG_INFLUXDB_BUCKET, CFG_INFLUXDB_TOKEN);
 #endif
 
-// LED
-bool ledState;
+// LED (all times in milliseconds)
+volatile bool ledState;
+bool ledBlinkStarted;
 long ledTimeOff, ledTimeOn;
 #define CONNECTED_LED_TIME_ON   (TASK_SECOND/4)
 #define CONNECTED_LED_TIME_OFF  (TASK_SECOND)
@@ -56,7 +61,6 @@ long ledTimeOff, ledTimeOn;
 
 // Tasks
 Task  tConnect     (TASK_SECOND, TASK_FOREVER, &connectInit, &ts, true);  // handles waiting on initial WiFi connection
-Task  tLED         (TASK_IMMEDIATE, TASK_FOREVER, &ledCallback, &ts, false, &onLedEnable, &onLedDisable);
 Task  tMDNS        (TASK_MILLISECOND*50, TASK_FOREVER, &mDNSCallback, &ts, false, &onMDNSEnable, nullptr);
 Task  tConnMonitor (TASK_SECOND, TASK_FOREVER, &connMonitorCallback, &ts, false);
 Task  tDataLogger  (LOGGER_TASK_INTERVAL, TASK_FOREVER, &loggerCallback, &ts, false);
@@ -84,7 +88,6 @@ void connectWait() {
         Serial.println(WiFi.localIP());
         ledTimeOff = CONNECTED_LED_TIME_OFF;
         ledTimeOn = CONNECTED_LED_TIME_ON;
-        tLED.enableIfNot();
         tConnect.disable();  // triggers internal status signal to resolve to 0
 
         tMDNS.enable();
@@ -107,7 +110,7 @@ void connectInit() {
 
     ledTimeOff = CONNECTING_LED_TIME_OFF;
     ledTimeOn = CONNECTING_LED_TIME_ON;
-    tLED.enable();
+    startLEDBlink();
 
     tConnect.yield(&connectWait);  // pass control to Scheduler; wait for initial WiFi connection
 }
@@ -136,13 +139,11 @@ void connMonitorCallback() {
     if (status == WL_CONNECTED) {
         ledTimeOff = CONNECTED_LED_TIME_OFF;
         ledTimeOn = CONNECTED_LED_TIME_ON;
-        tLED.enableIfNot();
         tDataLogger.enableIfNot();
     } else {
         Serial.print(millis()); Serial.print(F(": WiFi connection status: ")); Serial.println(status);
         ledTimeOff = CONNECTING_LED_TIME_OFF;
         ledTimeOn = CONNECTING_LED_TIME_ON;
-        tLED.enableIfNot();
         tDataLogger.disable();
     }
 }
@@ -163,45 +164,20 @@ void loggerCallback() {
     influxClient.writePoint(pointDevice);
 }
 
-/**
- * Flip the LED state based on the current state.
- */
-void ledCallback() {
-    if (ledState) ledOff();
-    else ledOn();
+void startLEDBlink() {
+    if (ledBlinkStarted) return;
+    ITimer.attachInterruptInterval(1000, ledTimerISR);
+    ledBlinkStarted = true;
 }
 
-/**
- * Make sure the LED starts lit.
- */
-bool onLedEnable() {
-    ledOn();
-    return true;
-}
-
-/**
- * Make sure LED ends dimmed.
- */
-void onLedDisable() {
-    ledOff();
-}
-
-/**
- * Turn LED on; set delay to ledTimeOn.
- * nb. Wemos D1 Mini onboard LED is active-low
- */
-void ledOn() {
-    ledState = true;
-    digitalWrite(LED_BUILTIN, LOW);
-    tLED.delay(ledTimeOn);
-}
-
-/**
- * Turn LED off; set delay to ledTimeOff.
- * nb. Wemos D1 Mini onboard LED is active-low
- */
-void ledOff() {
-    ledState = false;
-    digitalWrite(LED_BUILTIN, HIGH);
-    tLED.delay(ledTimeOff);
+IRAM_ATTR void ledTimerISR() {
+    if (ledState) {
+        ledState = false;
+        digitalWrite(LED_BUILTIN, HIGH);
+        ITimer.setInterval(ledTimeOff*1000, ledTimerISR);
+    } else {
+        ledState = true;
+        digitalWrite(LED_BUILTIN, LOW);
+        ITimer.setInterval(ledTimeOn*1000, ledTimerISR);
+    }
 }
