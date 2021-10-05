@@ -16,6 +16,6 @@
 #define CFG_INFLUXDB_BUCKET "bucket"  // InfluxDB 2 bucket name (Use: InfluxDB UI -> Load Data -> Buckets)
 
 #define CFG_MEASUREMENT_NAME "esp8266_influx_demo"
-#define CFG_DEVICE_NAME_TAG "esp8266"
+#define CFG_DEVICE_NAME_TAG "esp8266"  // Defaults to CFG_HOSTNAME if not defined
 
 #endif //CONFIG_H

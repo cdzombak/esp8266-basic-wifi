@@ -35,6 +35,11 @@ void loggerCallback();
 #define PING_COUNT   (2)
 #define PING_TARGET  IPAddress(8, 8, 4, 4)
 #define LOGGER_TASK_INTERVAL (TASK_SECOND*5)
+
+#ifndef CFG_DEVICE_NAME_TAG
+#define CFG_DEVICE_NAME_TAG CFG_HOSTNAME
+#endif
+
 #ifdef CFG_INFLUXDB_1_DB_NAME
 InfluxDBClient influxClient(CFG_INFLUXDB_URL, CFG_INFLUXDB_1_DB_NAME);
 #else
