@@ -33,7 +33,7 @@ void mDNSCallback();
 void connMonitorCallback();
 void loggerCallback();
 void ledTimerISR();
-void startLEDBlink();
+void blinkLED(unsigned long timeOn, unsigned long timeOff);
 
 // Ping task + Influx logging
 #define PING_COUNT   (2)
@@ -51,9 +51,6 @@ InfluxDBClient influxClient(CFG_INFLUXDB_URL, CFG_INFLUXDB_ORG, CFG_INFLUXDB_BUC
 #endif
 
 // LED (all times in milliseconds)
-volatile bool ledState;
-bool ledBlinkStarted;
-long ledTimeOff, ledTimeOn;
 #define CONNECTED_LED_TIME_ON   (TASK_SECOND/5)
 #define CONNECTED_LED_TIME_OFF  (TASK_SECOND*1.5)
 #define CONNECTING_LED_TIME_ON  (TASK_SECOND/5)
@@ -86,8 +83,7 @@ void connectWait() {
         Serial.print(millis());
         Serial.print(F(": Connected. My IP: "));
         Serial.println(WiFi.localIP());
-        ledTimeOff = CONNECTED_LED_TIME_OFF;
-        ledTimeOn = CONNECTED_LED_TIME_ON;
+        blinkLED(CONNECTED_LED_TIME_ON, CONNECTED_LED_TIME_OFF);
         tConnect.disable();  // triggers internal status signal to resolve to 0
 
         tMDNS.enable();
@@ -108,9 +104,7 @@ void connectInit() {
     WiFi.begin(CFG_WIFI_ESSID, CFG_WIFI_PASSWORD);
     yield();  // esp8266 yield allows WiFi stack to run
 
-    ledTimeOff = CONNECTING_LED_TIME_OFF;
-    ledTimeOn = CONNECTING_LED_TIME_ON;
-    startLEDBlink();
+    blinkLED(CONNECTING_LED_TIME_ON, CONNECTING_LED_TIME_OFF);
 
     tConnect.yield(&connectWait);  // pass control to Scheduler; wait for initial WiFi connection
 }
@@ -137,13 +131,11 @@ void mDNSCallback() {
 void connMonitorCallback() {
     auto status = WiFi.status();
     if (status == WL_CONNECTED) {
-        ledTimeOff = CONNECTED_LED_TIME_OFF;
-        ledTimeOn = CONNECTED_LED_TIME_ON;
+        blinkLED(CONNECTED_LED_TIME_ON, CONNECTED_LED_TIME_OFF);
         tDataLogger.enableIfNot();
     } else {
         Serial.print(millis()); Serial.print(F(": WiFi connection status: ")); Serial.println(status);
-        ledTimeOff = CONNECTING_LED_TIME_OFF;
-        ledTimeOn = CONNECTING_LED_TIME_ON;
+        blinkLED(CONNECTING_LED_TIME_ON, CONNECTING_LED_TIME_OFF);
         tDataLogger.disable();
     }
 }
@@ -164,20 +156,39 @@ void loggerCallback() {
     influxClient.writePoint(pointDevice);
 }
 
-void startLEDBlink() {
-    if (ledBlinkStarted) return;
-    ITimer.attachInterruptInterval(1000, ledTimerISR);
-    ledBlinkStarted = true;
+// LED blink management:
+volatile bool privLEDState;
+bool privLEDBlinkStarted;
+unsigned long privLEDTimeOff, privLEDTimeOn;
+
+/**
+ * Start LED blinking at the specified rate, restarting blinking immediately
+ * if it's already running at a different blink rate. Blinking (re)starts in
+ * the ON state.
+ */
+void blinkLED(unsigned long timeOn, unsigned long timeOff) {
+    if (!privLEDBlinkStarted || timeOff != privLEDTimeOff || timeOn != privLEDTimeOn) {
+        privLEDTimeOn = timeOn;
+        privLEDTimeOff = timeOff;
+        privLEDState = true;
+        digitalWrite(LED_BUILTIN, LOW);
+        if (privLEDBlinkStarted) {
+            ITimer.setInterval(privLEDTimeOn * 1000, ledTimerISR);
+        } else {
+            ITimer.attachInterruptInterval(privLEDTimeOn * 1000, ledTimerISR);
+            privLEDBlinkStarted = true;
+        }
+    }
 }
 
 IRAM_ATTR void ledTimerISR() {
-    if (ledState) {
-        ledState = false;
+    if (privLEDState) {
+        privLEDState = false;
         digitalWrite(LED_BUILTIN, HIGH);
-        ITimer.setInterval(ledTimeOff*1000, ledTimerISR);
+        ITimer.setInterval(privLEDTimeOff * 1000, ledTimerISR);
     } else {
-        ledState = true;
+        privLEDState = true;
         digitalWrite(LED_BUILTIN, LOW);
-        ITimer.setInterval(ledTimeOn*1000, ledTimerISR);
+        ITimer.setInterval(privLEDTimeOn * 1000, ledTimerISR);
     }
 }
