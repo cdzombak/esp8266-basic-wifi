@@ -14,7 +14,7 @@
 //    - esp8266wifi should handle reconnecting after a failure; I just need to monitor and blink the LED
 // - broadcast mDNS name
 // - blink LED fast while (re)connecting; display slow LED feedback when OK
-// - allow doing useful work once it's connected (simulated here by pinging Google DNS)
+// - allow doing useful work once it's connected (here, pinging Google DNS and reporting ping results and WiFi stats to InfluxDB)
 
 #define SERIAL_BAUD 115200
 
@@ -59,7 +59,7 @@ Task  tConnect     (TASK_SECOND, TASK_FOREVER, &connectInit, &ts, true);  // han
 Task  tLED         (TASK_IMMEDIATE, TASK_FOREVER, &ledCallback, &ts, false, &onLedEnable, &onLedDisable);
 Task  tMDNS        (TASK_MILLISECOND*50, TASK_FOREVER, &mDNSCallback, &ts, false, &onMDNSEnable, nullptr);
 Task  tConnMonitor (TASK_SECOND, TASK_FOREVER, &connMonitorCallback, &ts, false);
-Task  tDataLogger  (LOGGER_TASK_INTERVAL, TASK_FOREVER, &loggerCallback, &ts, false);  // simulates starting our "useful work"
+Task  tDataLogger  (LOGGER_TASK_INTERVAL, TASK_FOREVER, &loggerCallback, &ts, false);
 
 void setup() {
     Serial.begin(SERIAL_BAUD);
@@ -150,7 +150,6 @@ void connMonitorCallback() {
 /**
  * Ping Google DNS (8.8.4.4), per configuration defined above.
  * Log the results, plus uptime and WiFi status, to InfluxDB.
- * This simulates the "useful work" this project performs.
  */
 void loggerCallback() {
     bool pingSuccess = Ping.ping(PING_TARGET, PING_COUNT);
