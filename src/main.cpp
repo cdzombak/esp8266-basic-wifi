@@ -9,7 +9,7 @@
 
 #define TIMER_INTERRUPT_DEBUG         0
 #define _TIMERINTERRUPT_LOGLEVEL_     0
-#include "ESP8266TimerInterrupt.h" // https://github.com/khoih-prog/ESP8266TimerInterrupt v1.4.0 (PlatformIO listing is outdated)
+#include <ESP8266TimerInterrupt.h> // https://platformio.org/lib/show/11385/ESP8266TimerInterrupt
 
 #include "config.h"  // git-ignored file for configuration including secrets
 
