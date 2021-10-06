@@ -1,8 +1,12 @@
 #include <Arduino.h>
-#include <ESP8266WiFi.h>    // https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/readme.html
-#include <ESP8266mDNS.h>    // https://github.com/esp8266/Arduino/tree/master/libraries/ESP8266mDNS
-#include <ESP8266Ping.h>    // https://github.com/dancol90/ESP8266Ping
-#include <InfluxDbClient.h> // https://github.com/tobiasschuerg/InfluxDB-Client-for-Arduino
+#include <ESP8266WiFi.h>       // https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/readme.html
+#include <ESP8266mDNS.h>       // https://github.com/esp8266/Arduino/tree/master/libraries/ESP8266mDNS
+#include <ESP8266HTTPClient.h> // https://github.com/esp8266/Arduino/tree/master/libraries/ESP8266HTTPClient
+#include <CertStoreBearSSL.h>
+#include <time.h> // NOLINT(modernize-deprecated-headers)
+#include <FS.h>
+#include <LittleFS.h>
+#include <TZ.h>
 
 #define _TASK_SLEEP_ON_IDLE_RUN
 #include <TaskScheduler.h> // https://github.com/arkhipenko/TaskScheduler
@@ -11,81 +15,157 @@
 #define _TIMERINTERRUPT_LOGLEVEL_     0
 #include <ESP8266TimerInterrupt.h> // https://platformio.org/lib/show/11385/ESP8266TimerInterrupt
 
-#include "config.h"  // git-ignored file for configuration including secrets
-
-// Goal here is to:
-// - connect to WiFi
-//    - esp8266wifi should handle reconnecting after a failure; I just need to monitor and blink the LED
-// - broadcast mDNS name
-// - blink LED fast while (re)connecting; display slow LED feedback when OK
-// - allow doing useful work once it's connected (here, pinging Google DNS and reporting ping results and WiFi stats to InfluxDB)
+#include "config.h"
 
 #define SERIAL_BAUD 115200
+
+#ifndef CFG_TZ
+#define CFG_TZ TZ_America_Detroit
+#endif
 
 // Hardware interrupt-based timer, for LED management
 ESP8266Timer ITimer;
 
 // Scheduler & callback method prototypes
 Scheduler ts;
+bool ready = false;
 void connectInit();
 bool onMDNSEnable();
 void mDNSCallback();
 void connMonitorCallback();
-void loggerCallback();
+void httpsDemoCallback();
 void ledTimerISR();
 void blinkLED(unsigned long timeOn, unsigned long timeOff);
 
-// Ping task + Influx logging
-#define PING_COUNT   (2)
-#define PING_TARGET  IPAddress(8, 8, 4, 4)
-#define LOGGER_TASK_INTERVAL (TASK_SECOND*5)
-
-#ifndef CFG_DEVICE_NAME_TAG
-#define CFG_DEVICE_NAME_TAG CFG_HOSTNAME
-#endif
-
-#ifdef CFG_INFLUXDB_1_DB_NAME
-InfluxDBClient influxClient(CFG_INFLUXDB_URL, CFG_INFLUXDB_1_DB_NAME);
-#else
-InfluxDBClient influxClient(CFG_INFLUXDB_URL, CFG_INFLUXDB_ORG, CFG_INFLUXDB_BUCKET, CFG_INFLUXDB_TOKEN);
-#endif
+// HTTPS Requests Demo
+#define EXT_IP_URL "https://ip.dzdz.cz"
+//#define HTTP_TASK_INTERVAL (TASK_SECOND*30)
+#define HTTP_TASK_INTERVAL (TASK_SECOND*5)
+BearSSL::CertStore certStore;
+BearSSL::Session tlsSession;
+WiFiClientSecure wifiClient;
 
 // LED (all times in milliseconds)
 #define CONNECTED_LED_TIME_ON   (TASK_SECOND/5)
 #define CONNECTED_LED_TIME_OFF  (TASK_SECOND*1.5)
 #define CONNECTING_LED_TIME_ON  (TASK_SECOND/5)
-#define CONNECTING_LED_TIME_OFF (TASK_SECOND/5)
+#define CONNECTING_LED_TIME_OFF CONNECTING_LED_TIME_ON
+#define CERT_ERR_LED_TIME_ON    (TASK_SECOND/1.5)
+#define CERT_ERR_LED_TIME_OFF   CERT_ERR_LED_TIME_ON
 
 // Tasks
 Task  tConnect     (TASK_SECOND, TASK_FOREVER, &connectInit, &ts, true);  // handles waiting on initial WiFi connection
 Task  tMDNS        (TASK_MILLISECOND*50, TASK_FOREVER, &mDNSCallback, &ts, false, &onMDNSEnable, nullptr);
 Task  tConnMonitor (TASK_SECOND, TASK_FOREVER, &connMonitorCallback, &ts, false);
-Task  tDataLogger  (LOGGER_TASK_INTERVAL, TASK_FOREVER, &loggerCallback, &ts, false);
+Task  tHttpsDemo   (HTTP_TASK_INTERVAL, TASK_FOREVER, &httpsDemoCallback, &ts, false);
+
+/**
+ * Sets the system time via NTP, as required for x.509 validation
+ * see https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266WiFi/examples/BearSSL_CertStore/BearSSL_CertStore.ino
+ */
+void setClock() {
+    configTime(CFG_TZ, "pool.ntp.org", "time.nist.gov");
+
+    Serial.printf_P(PSTR("%lu: Waiting for NTP time sync "), millis());
+    time_t now = time(nullptr);
+    while (now < 8 * 3600 * 2) {
+        delay(250);
+        Serial.print(".");
+        now = time(nullptr);
+    }
+    Serial.print(F("\r\n"));
+    struct tm timeinfo; // NOLINT(cppcoreguidelines-pro-type-member-init)
+    gmtime_r(&now, &timeinfo);
+    Serial.printf_P(PSTR("Current time (UTC):   %s"), asctime(&timeinfo));
+    localtime_r(&now, &timeinfo);
+    Serial.printf_P(PSTR("Current time (Local): %s"), asctime(&timeinfo));
+}
 
 void setup() {
     Serial.begin(SERIAL_BAUD);
     pinMode(LED_BUILTIN, OUTPUT);
-    influxClient.setWriteOptions(WriteOptions().bufferSize(12)); // 12 points == 1 minute of readings @ 5 second intervals
+
+    LittleFS.begin();
+    int numCerts = certStore.initCertStore(LittleFS, PSTR("/certs.idx"), PSTR("/certs.ar"));
+    Serial.printf_P(PSTR("%lu: read %d CA certs into store\r\n"), millis(), numCerts);
+    if (numCerts == 0) {
+        Serial.println(F("!!! No certs found. Did you run certs-from-mozilla.py and upload the LittleFS directory?"));
+        blinkLED(CERT_ERR_LED_TIME_ON, CERT_ERR_LED_TIME_OFF);
+        return;
+    }
+    wifiClient.setCertStore(&certStore);
+    wifiClient.setSession(&tlsSession);
+
+    ready = true;
 }
 
 void loop() {
-    ts.execute();
+    if (ready) { // ready flag blocks running the main program if startup tasks failed
+        ts.execute();
+    }
 }
 
 /**
-   Wait for initial WiFi connection
+ * Get my external IP address and post it as the body to CFG_POST_URL.
+ */
+void httpsDemoCallback() {
+    HTTPClient httpClient;
+    httpClient.begin(wifiClient, EXT_IP_URL);
+    Serial.printf_P(PSTR("%lu: Starting GET request to %s\r\n"), millis(), EXT_IP_URL);
+    yield();
+    String getResult = "";
+    int respCode = httpClient.GET();
+    yield();
+    if (respCode >= 400) {
+        Serial.printf_P(PSTR("%lu: HTTP Error %d\r\n"), millis(), respCode);
+    } else if (respCode > 0) {
+        Serial.printf_P(PSTR("%lu: HTTP %d\r\n"), millis(), respCode);
+        getResult = httpClient.getString();
+        Serial.printf_P(PSTR("\t%s\r\n"), getResult.c_str());
+    } else {
+        Serial.printf_P(PSTR("%lu: error: %s\r\n"), millis(), HTTPClient::errorToString(respCode).c_str());
+    }
+    httpClient.end();
+
+    if (respCode < 0 || respCode >= 400) {
+        return;
+    }
+
+    // avoid a reset/crash due to blocking WiFi stack for too long
+    // that reset looks like: rst cause:2, boot mode:(3,6)
+    yield();
+
+    // TODO(cdzombak): POST as JSON
+
+    httpClient.setReuse(false); // holy hell, this took forever to figure out
+    httpClient.begin(wifiClient, CFG_POST_URL);
+    Serial.printf_P(PSTR("%lu: Starting POST request to %s\r\n"), millis(), CFG_POST_URL);
+    yield();
+    respCode = httpClient.POST(getResult);
+    yield();
+    if (respCode >= 400) {
+        Serial.printf_P(PSTR("%lu: HTTP Error %d\r\n"), millis(), respCode);
+    } else if (respCode > 0) {
+        Serial.printf_P(PSTR("%lu: HTTP %d\r\n"), millis(), respCode);
+    } else {
+        Serial.printf_P(PSTR("%lu: error: %s\r\n"), millis(), HTTPClient::errorToString(respCode).c_str());
+    }
+    httpClient.end();
+}
+
+/**
+   Wait for initial WiFi connection, then set clock & enable connection monitor
 */
 void connectWait() {
-    Serial.print(millis());
-    Serial.println(F(": Waiting for initial connection"));
+    Serial.printf_P(PSTR("%lu: Waiting for initial WiFi connection\r\n"), millis());
 
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.print(millis());
-        Serial.print(F(": Connected. My IP: "));
-        Serial.println(WiFi.localIP());
+        Serial.printf_P(PSTR("%lu: Connected. My IP: %s\r\n"), millis(), WiFi.localIP().toString().c_str());
         blinkLED(CONNECTED_LED_TIME_ON, CONNECTED_LED_TIME_OFF);
-        tConnect.disable();  // triggers internal status signal to resolve to 0
+        tConnect.disable();
 
+        yield();
+        setClock(); // blocking call to set clock for x.509 validation as soon as WiFi is connected
         tMDNS.enable();
         tConnMonitor.enable();
     }
@@ -95,17 +175,12 @@ void connectWait() {
    Initiate connection to the WiFi network
 */
 void connectInit() {
-    Serial.print(F("Connecting to WiFi ("));
-    Serial.print(CFG_WIFI_ESSID);
-    Serial.println(F(")"));
-
+    Serial.printf_P(PSTR("Connecting to WiFi (%s)\r\n"), CFG_WIFI_ESSID);
     WiFi.mode(WIFI_STA);
     WiFi.hostname(CFG_HOSTNAME);
     WiFi.begin(CFG_WIFI_ESSID, CFG_WIFI_PASSWORD);
-    yield();  // esp8266 yield allows WiFi stack to run
-
     blinkLED(CONNECTING_LED_TIME_ON, CONNECTING_LED_TIME_OFF);
-
+    yield();  // esp8266 yield allows WiFi stack to run
     tConnect.yield(&connectWait);  // pass control to Scheduler; wait for initial WiFi connection
 }
 
@@ -126,34 +201,18 @@ void mDNSCallback() {
 /**
  * Check WiFi status every second and configure accordingly:
  * - LED blink rate
- * - Whether pinging (our "work") is enabled
+ * - Whether HTTPS requests (our "work") is enabled
  */
 void connMonitorCallback() {
     auto status = WiFi.status();
     if (status == WL_CONNECTED) {
         blinkLED(CONNECTED_LED_TIME_ON, CONNECTED_LED_TIME_OFF);
-        tDataLogger.enableIfNot();
+        tHttpsDemo.enableIfNot();
     } else {
         Serial.print(millis()); Serial.print(F(": WiFi connection status: ")); Serial.println(status);
         blinkLED(CONNECTING_LED_TIME_ON, CONNECTING_LED_TIME_OFF);
-        tDataLogger.disable();
+        tHttpsDemo.disable();
     }
-}
-
-/**
- * Ping Google DNS (8.8.4.4), per configuration defined above.
- * Log the results, plus uptime and WiFi status, to InfluxDB.
- */
-void loggerCallback() {
-    bool pingSuccess = Ping.ping(PING_TARGET, PING_COUNT);
-
-    Point pointDevice(CFG_MEASUREMENT_NAME);
-    pointDevice.addTag("device_name", CFG_DEVICE_NAME_TAG);
-    pointDevice.addField("wifi_rssi", WiFi.RSSI());
-    pointDevice.addField("uptime_ms", millis());
-    pointDevice.addField("ping_success", pingSuccess);
-    pointDevice.addField("ping_avg_time_ms", Ping.averageTime());
-    influxClient.writePoint(pointDevice);
 }
 
 // LED blink management:
