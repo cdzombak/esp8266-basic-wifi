@@ -132,7 +132,7 @@ public:
         }
 
         // count up
-        TISR_LOGWARN3(F("ESP8266TimerInterrupt: _fre ="), _frequency, F(", _count ="), _timerCount);
+//        TISR_LOGWARN3(F("ESP8266TimerInterrupt: _fre ="), _frequency, F(", _count ="), _timerCount);
 
         // Clock to timer (prescaler) is always 80MHz, even F_CPU is 160 MHz
 
@@ -148,12 +148,12 @@ public:
 
     // interval (in microseconds) and duration (in milliseconds). Duration = 0 or not specified => run indefinitely
     // No params and duration now. To be addes in the future by adding similar functions here or to esp32-hal-timer.c
-    bool setInterval(unsigned long interval, timer_callback callback)
+    IRAM_ATTR bool setInterval(unsigned long interval, timer_callback callback)
     {
         return setFrequency((float) (1000000.0f / interval), callback);
     }
 
-    bool attachInterrupt(float frequency, timer_callback callback)
+    IRAM_ATTR bool attachInterrupt(float frequency, timer_callback callback)
     {
         return setFrequency(frequency, callback);
     }
