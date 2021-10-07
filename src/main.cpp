@@ -114,10 +114,8 @@ void httpsDemoCallback() {
     HTTPClient httpClient;
     httpClient.begin(wifiClient, EXT_IP_URL);
     Serial.printf_P(PSTR("%lu: Starting GET request to %s\r\n"), millis(), EXT_IP_URL);
-    yield();
     String getResult = "";
     int respCode = httpClient.GET();
-    yield();
     if (respCode >= 400) {
         Serial.printf_P(PSTR("%lu: HTTP Error %d\r\n"), millis(), respCode);
     } else if (respCode > 0) {
@@ -133,9 +131,7 @@ void httpsDemoCallback() {
         return;
     }
 
-    // avoid a reset/crash due to blocking WiFi stack for too long
-    // that reset looks like: rst cause:2, boot mode:(3,6)
-    yield();
+    yield(); // esp8266 yield allows WiFi stack to run
 
     String jsonBody;
 #ifdef USE_DYNAMIC_JSON_DOC
@@ -151,9 +147,7 @@ void httpsDemoCallback() {
     httpClient.begin(wifiClient, CFG_POST_URL);
     httpClient.addHeader(F("Content-Type"), F("application/json"));
     Serial.printf_P(PSTR("%lu: Starting POST request to %s\r\n"), millis(), CFG_POST_URL);
-    yield();
     respCode = httpClient.POST(jsonBody);
-    yield();
     if (respCode >= 400) {
         Serial.printf_P(PSTR("%lu: HTTP Error %d\r\n"), millis(), respCode);
     } else if (respCode > 0) {
@@ -175,7 +169,7 @@ void connectWait() {
         blinkLED(CONNECTED_LED_TIME_ON, CONNECTED_LED_TIME_OFF);
         tConnect.disable();
 
-        yield();
+        yield(); // esp8266 yield allows WiFi stack to run
         setClock(); // blocking call to set clock for x.509 validation as soon as WiFi is connected
         tMDNS.enable();
         tConnMonitor.enable();
