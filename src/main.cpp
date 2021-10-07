@@ -9,13 +9,10 @@
 #include <TZ.h>
 #include <ArduinoJson.h> // https://arduinojson.org
 
-#define _TASK_SLEEP_ON_IDLE_RUN
+#define _TASK_SLEEP_ON_IDLE_RUN // NOLINT(bugprone-reserved-identifier)
 #include <TaskScheduler.h> // https://github.com/arkhipenko/TaskScheduler
 
-#define TIMER_INTERRUPT_DEBUG         0
-#define _TIMERINTERRUPT_LOGLEVEL_     0
-#include "ESP8266TimerInterrupt.h" // https://platformio.org/lib/show/11385/ESP8266TimerInterrupt
-
+#include "led.h"
 #include "config.h"
 
 #define SERIAL_BAUD 115200
@@ -23,9 +20,6 @@
 #ifndef CFG_TZ
 #define CFG_TZ TZ_America_Detroit
 #endif
-
-// Hardware interrupt-based timer, for LED management
-ESP8266Timer ITimer;
 
 // Scheduler & callback method prototypes
 Scheduler ts;
@@ -35,12 +29,10 @@ bool onMDNSEnable();
 void mDNSCallback();
 void connMonitorCallback();
 void httpsDemoCallback();
-void ledTimerISR();
-void blinkLED(unsigned long timeOn, unsigned long timeOff);
 
 // HTTPS Requests Demo
 #define EXT_IP_URL "https://ip.dzdz.cz"
-#define HTTP_TASK_INTERVAL (TASK_SECOND) // TODO(cdzombak): restore to every 30s
+#define HTTP_TASK_INTERVAL (TASK_SECOND*30)
 //#define USE_DYNAMIC_JSON_DOC // demos ArduinoJson's DynamicJsonDoc
 BearSSL::CertStore certStore;
 BearSSL::Session tlsSession;
@@ -216,42 +208,5 @@ void connMonitorCallback() {
         Serial.print(millis()); Serial.print(F(": WiFi connection status: ")); Serial.println(status);
         blinkLED(CONNECTING_LED_TIME_ON, CONNECTING_LED_TIME_OFF);
         tHttpsDemo.disable();
-    }
-}
-
-// LED blink management:
-volatile bool privLEDState;
-bool privLEDBlinkStarted;
-unsigned long privLEDTimeOff, privLEDTimeOn;
-
-/**
- * Start LED blinking at the specified rate, restarting blinking immediately
- * if it's already running at a different blink rate. Blinking (re)starts in
- * the ON state.
- */
-void blinkLED(unsigned long timeOn, unsigned long timeOff) {
-    if (!privLEDBlinkStarted || timeOff != privLEDTimeOff || timeOn != privLEDTimeOn) {
-        privLEDTimeOn = timeOn;
-        privLEDTimeOff = timeOff;
-        privLEDState = true;
-        digitalWrite(LED_BUILTIN, LOW);
-        if (privLEDBlinkStarted) {
-            ITimer.setInterval(privLEDTimeOn * 1000, ledTimerISR);
-        } else {
-            ITimer.attachInterruptInterval(privLEDTimeOn * 1000, ledTimerISR);
-            privLEDBlinkStarted = true;
-        }
-    }
-}
-
-IRAM_ATTR void ledTimerISR() {
-    if (privLEDState) {
-        privLEDState = false;
-        digitalWrite(LED_BUILTIN, HIGH);
-        ITimer.setInterval(privLEDTimeOff * 1000, ledTimerISR);
-    } else {
-        privLEDState = true;
-        digitalWrite(LED_BUILTIN, LOW);
-        ITimer.setInterval(privLEDTimeOn * 1000, ledTimerISR);
     }
 }
