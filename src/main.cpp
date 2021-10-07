@@ -14,7 +14,7 @@
 
 #define TIMER_INTERRUPT_DEBUG         0
 #define _TIMERINTERRUPT_LOGLEVEL_     0
-#include <ESP8266TimerInterrupt.h> // https://platformio.org/lib/show/11385/ESP8266TimerInterrupt
+#include "ESP8266TimerInterrupt.h" // https://platformio.org/lib/show/11385/ESP8266TimerInterrupt
 
 #include "config.h"
 
@@ -40,8 +40,7 @@ void blinkLED(unsigned long timeOn, unsigned long timeOff);
 
 // HTTPS Requests Demo
 #define EXT_IP_URL "https://ip.dzdz.cz"
-//#define HTTP_TASK_INTERVAL (TASK_SECOND*30)
-#define HTTP_TASK_INTERVAL (TASK_SECOND*5)
+#define HTTP_TASK_INTERVAL (TASK_SECOND) // TODO(cdzombak): restore to every 30s
 //#define USE_DYNAMIC_JSON_DOC // demos ArduinoJson's DynamicJsonDoc
 BearSSL::CertStore certStore;
 BearSSL::Session tlsSession;
