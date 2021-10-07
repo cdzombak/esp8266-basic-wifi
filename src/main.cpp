@@ -7,6 +7,7 @@
 #include <FS.h>
 #include <LittleFS.h>
 #include <TZ.h>
+#include <ArduinoJson.h> // https://arduinojson.org
 
 #define _TASK_SLEEP_ON_IDLE_RUN
 #include <TaskScheduler.h> // https://github.com/arkhipenko/TaskScheduler
@@ -41,6 +42,7 @@ void blinkLED(unsigned long timeOn, unsigned long timeOff);
 #define EXT_IP_URL "https://ip.dzdz.cz"
 //#define HTTP_TASK_INTERVAL (TASK_SECOND*30)
 #define HTTP_TASK_INTERVAL (TASK_SECOND*5)
+//#define USE_DYNAMIC_JSON_DOC // demos ArduinoJson's DynamicJsonDoc
 BearSSL::CertStore certStore;
 BearSSL::Session tlsSession;
 WiFiClientSecure wifiClient;
@@ -135,13 +137,22 @@ void httpsDemoCallback() {
     // that reset looks like: rst cause:2, boot mode:(3,6)
     yield();
 
-    // TODO(cdzombak): POST as JSON
+    String jsonBody;
+#ifdef USE_DYNAMIC_JSON_DOC
+    DynamicJsonDocument jsonDoc(96);
+#else
+    StaticJsonDocument<96> jsonDoc;
+#endif
+    jsonDoc["ext_ip"] = getResult;
+    jsonDoc["int_ip"] = WiFi.localIP().toString();
+    serializeJson(jsonDoc, jsonBody);
 
     httpClient.setReuse(false); // holy hell, this took forever to figure out
     httpClient.begin(wifiClient, CFG_POST_URL);
+    httpClient.addHeader(F("Content-Type"), F("application/json"));
     Serial.printf_P(PSTR("%lu: Starting POST request to %s\r\n"), millis(), CFG_POST_URL);
     yield();
-    respCode = httpClient.POST(getResult);
+    respCode = httpClient.POST(jsonBody);
     yield();
     if (respCode >= 400) {
         Serial.printf_P(PSTR("%lu: HTTP Error %d\r\n"), millis(), respCode);
@@ -175,7 +186,7 @@ void connectWait() {
    Initiate connection to the WiFi network
 */
 void connectInit() {
-    Serial.printf_P(PSTR("Connecting to WiFi (%s)\r\n"), CFG_WIFI_ESSID);
+    Serial.printf_P(PSTR("%lu: Connecting to WiFi (%s)\r\n"), millis(), CFG_WIFI_ESSID);
     WiFi.mode(WIFI_STA);
     WiFi.hostname(CFG_HOSTNAME);
     WiFi.begin(CFG_WIFI_ESSID, CFG_WIFI_PASSWORD);
