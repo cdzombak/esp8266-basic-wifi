@@ -7,10 +7,7 @@
 #define _TASK_SLEEP_ON_IDLE_RUN
 #include <TaskScheduler.h> // https://github.com/arkhipenko/TaskScheduler
 
-#define TIMER_INTERRUPT_DEBUG         0
-#define _TIMERINTERRUPT_LOGLEVEL_     0
-#include <ESP8266TimerInterrupt.h> // https://platformio.org/lib/show/11385/ESP8266TimerInterrupt
-
+#include "led.h"
 #include "config.h"  // git-ignored file for configuration including secrets
 
 // Goal here is to:
@@ -18,12 +15,9 @@
 //    - esp8266wifi should handle reconnecting after a failure; I just need to monitor and blink the LED
 // - broadcast mDNS name
 // - blink LED fast while (re)connecting; display slow LED feedback when OK
-// - allow doing useful work once it's connected (here, pinging Google DNS and reporting ping results and WiFi stats to InfluxDB)
+// - allow doing useful work once it's connected (here, pinging Google DNS and reporting ping results + WiFi stats to InfluxDB)
 
 #define SERIAL_BAUD 115200
-
-// Hardware interrupt-based timer, for LED management
-ESP8266Timer ITimer;
 
 // Scheduler & callback method prototypes
 Scheduler ts;
@@ -32,8 +26,6 @@ bool onMDNSEnable();
 void mDNSCallback();
 void connMonitorCallback();
 void loggerCallback();
-void ledTimerISR();
-void blinkLED(unsigned long timeOn, unsigned long timeOff);
 
 // Ping task + Influx logging
 #define PING_COUNT   (2)
@@ -54,7 +46,7 @@ InfluxDBClient influxClient(CFG_INFLUXDB_URL, CFG_INFLUXDB_ORG, CFG_INFLUXDB_BUC
 #define CONNECTED_LED_TIME_ON   (TASK_SECOND/5)
 #define CONNECTED_LED_TIME_OFF  (TASK_SECOND*1.5)
 #define CONNECTING_LED_TIME_ON  (TASK_SECOND/5)
-#define CONNECTING_LED_TIME_OFF (TASK_SECOND/5)
+#define CONNECTING_LED_TIME_OFF CONNECTING_LED_TIME_ON
 
 // Tasks
 Task  tConnect     (TASK_SECOND, TASK_FOREVER, &connectInit, &ts, true);  // handles waiting on initial WiFi connection
@@ -64,7 +56,6 @@ Task  tDataLogger  (LOGGER_TASK_INTERVAL, TASK_FOREVER, &loggerCallback, &ts, fa
 
 void setup() {
     Serial.begin(SERIAL_BAUD);
-    pinMode(LED_BUILTIN, OUTPUT);
     influxClient.setWriteOptions(WriteOptions().bufferSize(12)); // 12 points == 1 minute of readings @ 5 second intervals
 }
 
@@ -76,15 +67,12 @@ void loop() {
    Wait for initial WiFi connection
 */
 void connectWait() {
-    Serial.print(millis());
-    Serial.println(F(": Waiting for initial connection"));
+    Serial.printf_P(PSTR("%lu: Waiting for initial WiFi connection\r\n"), millis());
 
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.print(millis());
-        Serial.print(F(": Connected. My IP: "));
-        Serial.println(WiFi.localIP());
+        Serial.printf_P(PSTR("%lu: Connected. My IP: %s\r\n"), millis(), WiFi.localIP().toString().c_str());
         blinkLED(CONNECTED_LED_TIME_ON, CONNECTED_LED_TIME_OFF);
-        tConnect.disable();  // triggers internal status signal to resolve to 0
+        tConnect.disable();
 
         tMDNS.enable();
         tConnMonitor.enable();
@@ -95,17 +83,12 @@ void connectWait() {
    Initiate connection to the WiFi network
 */
 void connectInit() {
-    Serial.print(F("Connecting to WiFi ("));
-    Serial.print(CFG_WIFI_ESSID);
-    Serial.println(F(")"));
-
+    Serial.printf_P(PSTR("%lu: Connecting to WiFi (%s)\r\n"), millis(), CFG_WIFI_ESSID);
     WiFi.mode(WIFI_STA);
     WiFi.hostname(CFG_HOSTNAME);
     WiFi.begin(CFG_WIFI_ESSID, CFG_WIFI_PASSWORD);
-    yield();  // esp8266 yield allows WiFi stack to run
-
     blinkLED(CONNECTING_LED_TIME_ON, CONNECTING_LED_TIME_OFF);
-
+    yield();  // esp8266 yield allows WiFi stack to run
     tConnect.yield(&connectWait);  // pass control to Scheduler; wait for initial WiFi connection
 }
 
@@ -154,41 +137,4 @@ void loggerCallback() {
     pointDevice.addField("ping_success", pingSuccess);
     pointDevice.addField("ping_avg_time_ms", Ping.averageTime());
     influxClient.writePoint(pointDevice);
-}
-
-// LED blink management:
-volatile bool privLEDState;
-bool privLEDBlinkStarted;
-unsigned long privLEDTimeOff, privLEDTimeOn;
-
-/**
- * Start LED blinking at the specified rate, restarting blinking immediately
- * if it's already running at a different blink rate. Blinking (re)starts in
- * the ON state.
- */
-void blinkLED(unsigned long timeOn, unsigned long timeOff) {
-    if (!privLEDBlinkStarted || timeOff != privLEDTimeOff || timeOn != privLEDTimeOn) {
-        privLEDTimeOn = timeOn;
-        privLEDTimeOff = timeOff;
-        privLEDState = true;
-        digitalWrite(LED_BUILTIN, LOW);
-        if (privLEDBlinkStarted) {
-            ITimer.setInterval(privLEDTimeOn * 1000, ledTimerISR);
-        } else {
-            ITimer.attachInterruptInterval(privLEDTimeOn * 1000, ledTimerISR);
-            privLEDBlinkStarted = true;
-        }
-    }
-}
-
-IRAM_ATTR void ledTimerISR() {
-    if (privLEDState) {
-        privLEDState = false;
-        digitalWrite(LED_BUILTIN, HIGH);
-        ITimer.setInterval(privLEDTimeOff * 1000, ledTimerISR);
-    } else {
-        privLEDState = true;
-        digitalWrite(LED_BUILTIN, LOW);
-        ITimer.setInterval(privLEDTimeOn * 1000, ledTimerISR);
-    }
 }
