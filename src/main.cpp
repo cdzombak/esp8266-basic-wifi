@@ -109,7 +109,7 @@ void mDNSCallback() {
 /**
  * Check WiFi status every second and configure accordingly:
  * - LED blink rate
- * - Whether pinging (our "work") is enabled
+ * - Whether InfluxDB logging (our work) is enabled
  */
 void connMonitorCallback() {
     auto status = WiFi.status();
