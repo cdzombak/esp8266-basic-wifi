@@ -2,11 +2,9 @@
 #include "led.h"
 
 // nb. Wemos D1 Mini onboard LED is active-low
-// TIM_DIV256 = 3 //312.5Khz (1 tick = 3.2us - 26843542.4 us max)
 
 volatile bool ledState; // the current LED state
-bool ledBlinkStarted; // whether blinking has started (ie. whether the ISR is attached)
-unsigned long ledTimeOff, ledTimeOn; // desired off/on times, in milliseconds
+bool ledBlinkEnabled; // whether blinking has started (ie. whether the ISR is attached)
 uint32_t ledCountsOff, ledCountsOn; // desired off/on times, in timer counts of 3.2us
 
 IRAM_ATTR void ledTimerISR() {
@@ -23,33 +21,37 @@ IRAM_ATTR void ledTimerISR() {
     }
 }
 
-/**
- * Start LED blinking at the specified rate, restarting blinking immediately
- * if it's already running at a different blink rate. Blinking (re)starts in
- * the ON state. Times in milliseconds.
- */
-void blinkLED(unsigned long timeOn, unsigned long timeOff) {
-    if (!ledBlinkStarted || timeOff != ledTimeOff || timeOn != ledTimeOn) {
-        ledTimeOn = timeOn;
-        ledTimeOff = timeOff;
-        // milliseconds * 1000 = microseconds
-        // microseconds / 3.2 = ticks
-        // => milliseconds * (1000/3.2) = ticks
-        // => milliseconds * 312.5 = ticks
-        // ... and then we actually use 312, to avoid floating-point math entirely
-        ledCountsOn = timeOn * 312;
-        ledCountsOff = timeOff * 312;
+void blinkLED(unsigned long desiredTimeOn, unsigned long desiredTimeOff) {
+    // TIM_DIV256 = 3 //312.5Khz (1 tick = 3.2us - 26843542.4 us max)
+    // milliseconds * 1000 = microseconds
+    // microseconds / 3.2 = ticks
+    // => milliseconds * (1000/3.2) = ticks
+    // => milliseconds * 312.5 = ticks
+    // ... and then we actually use 312, to avoid floating-point math entirely
+    auto desiredCountsOn = desiredTimeOn * 312;
+    auto desiredCountsOff = desiredTimeOff * 312;
+    if (!ledBlinkEnabled || desiredCountsOff != ledCountsOff || desiredCountsOn != ledCountsOn) {
+        ledCountsOn = desiredCountsOn;
+        ledCountsOff = desiredCountsOff;
         ledState = true;
         digitalWrite(LED_BUILTIN, LOW);
-        if (ledBlinkStarted) {
+        if (ledBlinkEnabled) {
             timer1_disable();
             timer1_write(ledCountsOn);
             timer1_enable(TIM_DIV256, TIM_EDGE, TIM_SINGLE);
         } else {
+            ledBlinkEnabled = true;
             timer1_attachInterrupt(ledTimerISR);
-            ledBlinkStarted = true;
             timer1_write(ledCountsOn);
             timer1_enable(TIM_DIV256, TIM_EDGE, TIM_SINGLE);
         }
+    }
+}
+
+void stopLED() {
+    if (ledBlinkEnabled) {
+        timer1_disable();
+        timer1_detachInterrupt();
+        ledBlinkEnabled = false;
     }
 }

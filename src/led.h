@@ -6,6 +6,12 @@
  * if it's already running at a different blink rate. Blinking (re)starts in
  * the ON state. Times in milliseconds.
  */
-void blinkLED(unsigned long timeOn, unsigned long timeOff);
+void blinkLED(unsigned long desiredTimeOn, unsigned long desiredTimeOff);
+
+
+/**
+ * Stop LED blinking, freeing timer1 for other uses.
+ */
+void stopLED();
 
 #endif //ESP8266_BASIC_WIFI_LED_H
