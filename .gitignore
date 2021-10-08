@@ -1,4 +1,4 @@
 .pio
 CMakeListsPrivate.txt
 cmake-build-*/
-.idea # only for base branch
+.idea/ # only for base branch
