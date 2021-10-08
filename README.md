@@ -27,4 +27,5 @@ Blog posts for these demos will eventually be posted at [dzombak.com/blog](https
 
 - [ESP8266 + PlatformIO Serial Console Monitoring with Exception Decoding *(October 7, 2021)*](https://www.dzombak.com/blog/2021/10/ESP8266-PlatformIO-Serial-Console-Monitoring-with-Exception-Decoding.html)
 - [Debugging an Intermittent Arduino/ESP8266 ISR Crash *(October 7, 2021)*](https://www.dzombak.com/blog/2021/10/Debugging-an-Intermittent-Arduino-ESP8266-ISR-Crash.html)
-
+- [Reusing an ESP8266HTTPClient *(October 8, 2021)*](https://www.dzombak.com/blog/2021/10/Reusing-an-ESP8266HTTPClient.html)
+- [How to enable debug logging for Arduino's ESP8266HTTPClient with PlatformIO *(October 8, 2021)*](https://www.dzombak.com/blog/2021/10/ESP8266-How-to-enable-debug-logging-for-Arduino-s-ESP8266HTTPClient-with-PlatformIO.html)
