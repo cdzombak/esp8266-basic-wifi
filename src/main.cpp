@@ -76,7 +76,6 @@ void setClock() {
 
 void setup() {
     Serial.begin(SERIAL_BAUD);
-    pinMode(LED_BUILTIN, OUTPUT);
 
     LittleFS.begin();
     int numCerts = certStore.initCertStore(LittleFS, PSTR("/certs.idx"), PSTR("/certs.ar"));

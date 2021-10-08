@@ -41,6 +41,7 @@ void blinkLED(unsigned long desiredTimeOn, unsigned long desiredTimeOff) {
             timer1_enable(TIM_DIV256, TIM_EDGE, TIM_SINGLE);
         } else {
             ledBlinkEnabled = true;
+            pinMode(LED_BUILTIN, OUTPUT);
             timer1_attachInterrupt(ledTimerISR);
             timer1_write(ledCountsOn);
             timer1_enable(TIM_DIV256, TIM_EDGE, TIM_SINGLE);
