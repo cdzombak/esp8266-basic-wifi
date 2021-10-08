@@ -160,7 +160,6 @@ void connectWait() {
         blinkLED(CONNECTED_LED_TIME_ON, CONNECTED_LED_TIME_OFF);
         tConnect.disable();
 
-        yield(); // esp8266 yield allows WiFi stack to run
         setClock(); // blocking call to set clock for x.509 validation as soon as WiFi is connected
         tMDNS.enable();
         tConnMonitor.enable();
