@@ -29,3 +29,4 @@ Blog posts for these demos will eventually be posted at [dzombak.com/blog](https
 - [Debugging an Intermittent Arduino/ESP8266 ISR Crash *(October 7, 2021)*](https://www.dzombak.com/blog/2021/10/Debugging-an-Intermittent-Arduino-ESP8266-ISR-Crash.html)
 - [Reusing an ESP8266HTTPClient *(October 8, 2021)*](https://www.dzombak.com/blog/2021/10/Reusing-an-ESP8266HTTPClient.html)
 - [How to enable debug logging for Arduino's ESP8266HTTPClient with PlatformIO *(October 8, 2021)*](https://www.dzombak.com/blog/2021/10/ESP8266-How-to-enable-debug-logging-for-Arduino-s-ESP8266HTTPClient-with-PlatformIO.html)
+- [Initial Impressions of ESP8266 + Arduino *(October 15, 2021)*](https://www.dzombak.com/blog/2021/10/Initial-Impressions-of-ESP8266-Arduino.html)
