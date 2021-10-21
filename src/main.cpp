@@ -87,6 +87,7 @@ void setup() {
     }
     wifiClient.setCertStore(&certStore);
     wifiClient.setSession(&tlsSession);
+    wifiClient.setSSLVersion(BR_TLS12, BR_TLS12);
 
     ready = true;
 }
