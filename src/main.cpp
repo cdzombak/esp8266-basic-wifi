@@ -2,11 +2,13 @@
 #include <ESP8266WiFi.h>       // https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/readme.html
 #include <ESP8266mDNS.h>       // https://github.com/esp8266/Arduino/tree/master/libraries/ESP8266mDNS
 #include <ESP8266HTTPClient.h> // https://github.com/esp8266/Arduino/tree/master/libraries/ESP8266HTTPClient
+#include <WiFiClientSecureBearSSL.h>
 #include <CertStoreBearSSL.h>
+#include <BearSSLHelpers.h>
 #include <time.h> // NOLINT(modernize-deprecated-headers)
+#include <TZ.h>
 #include <FS.h>
 #include <LittleFS.h>
-#include <TZ.h>
 #include <ArduinoJson.h> // https://arduinojson.org
 
 #define _TASK_SLEEP_ON_IDLE_RUN // NOLINT(bugprone-reserved-identifier)
@@ -36,7 +38,7 @@ void httpsDemoCallback();
 //#define USE_DYNAMIC_JSON_DOC // demos ArduinoJson's DynamicJsonDoc
 BearSSL::CertStore certStore;
 BearSSL::Session tlsSession;
-WiFiClientSecure wifiClient;
+BearSSL::WiFiClientSecure wifiClient;
 
 // LED (all times in milliseconds)
 #define CONNECTED_LED_TIME_ON   (TASK_SECOND/5)
