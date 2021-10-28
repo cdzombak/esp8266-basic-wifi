@@ -1,12 +1,14 @@
+See my blog post on this demo: https://www.dzombak.com/blog/2021/10/HTTPS-Requests-with-a-Root-Certificate-Store-on-ESP8266-Arduino.html
+
+---
+
 HTTP(S) demo specific notes:
 - https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/bearssl-client-secure-class.html
   recommends running at 160MHz, which is accomplished in platformio.ini
 - A lot of online tutorials recommend hardcoding a certificate fingerprint; I wanted to
   use an actual certificate store.
-
-TODO(cdzombak): Document how to generate the data/certs.ar store
-
-Upload `data` (certificate store) to board's LittleFS via `platformio run --target uploadfs` from the project root directory.
+- Upload `data` (certificate store) to board's LittleFS via `platformio run --target uploadfs` 
+  from the project root directory.
 
 References:
 - https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/bearssl-client-secure-class.html
