@@ -31,3 +31,4 @@ Blog posts for these demos will eventually be posted at [dzombak.com/blog](https
 - [How to enable debug logging for Arduino's ESP8266HTTPClient with PlatformIO *(October 8, 2021)*](https://www.dzombak.com/blog/2021/10/ESP8266-How-to-enable-debug-logging-for-Arduino-s-ESP8266HTTPClient-with-PlatformIO.html)
 - [Initial Impressions of ESP8266 + Arduino *(October 15, 2021)*](https://www.dzombak.com/blog/2021/10/Initial-Impressions-of-ESP8266-Arduino.html)
 - [Shipping Data to InfluxDB using Arduino + ESP8266 *(October 15, 2021)*](https://www.dzombak.com/blog/2021/10/Shipping-Data-to-InfluxDB-using-Arduino-ESP8266.html)
+- [HTTPS Requests with a Root Certificate Store on ESP8266 + Arduino *(October 28, 2021)*](https://www.dzombak.com/blog/2021/10/HTTPS-Requests-with-a-Root-Certificate-Store-on-ESP8266-Arduino.html)
