@@ -4,7 +4,8 @@ This project's branches contain several different [ESP8266 + Arduino](https://ar
 
 - [Branch `basic-wifi`](https://github.com/cdzombak/esp8266-basic-wifi/tree/basic-wifi) connects to a WiFi network and then periodically pings Google
 - [Branch `influxdb`](https://github.com/cdzombak/esp8266-basic-wifi/tree/influxdb) reports ping results and WiFi statistics to an InfluxDB server periodically
-- [Branch `https`](https://github.com/cdzombak/esp8266-basic-wifi/tree/https) performs GET and POST requests over HTTPS, using JSON and performing proper TLS certificate validation using a root store
+- [Branch `https`](https://github.com/cdzombak/esp8266-basic-wifi/tree/https) performs GET and POST requests over HTTPS, using JSON and performing proper TLS certificate verification using a root store
+- [Branch `letsencrypt`](https://github.com/cdzombak/esp8266-basic-wifi/tree/letsencrypt) performs a GET over HTTPS, performing proper TLS certificate verification using a small set of root certificates (Let's Encrypt's roots)
 
 My goals for this project are:
 
@@ -32,3 +33,4 @@ Blog posts for these demos will eventually be posted at [dzombak.com/blog](https
 - [Initial Impressions of ESP8266 + Arduino *(October 15, 2021)*](https://www.dzombak.com/blog/2021/10/Initial-Impressions-of-ESP8266-Arduino.html)
 - [Shipping Data to InfluxDB using Arduino + ESP8266 *(October 15, 2021)*](https://www.dzombak.com/blog/2021/10/Shipping-Data-to-InfluxDB-using-Arduino-ESP8266.html)
 - [HTTPS Requests with a Root Certificate Store on ESP8266 + Arduino *(October 28, 2021)*](https://www.dzombak.com/blog/2021/10/HTTPS-Requests-with-a-Root-Certificate-Store-on-ESP8266-Arduino.html)
+- [HTTPS Requests with a Small Set of Root Certificates on ESP8266 + Arduino](https://www.dzombak.com/blog/2021/10/HTTPS-Requests-with-a-Small-Set-of-Root-Certificates-on-ESP8266-Arduino.html)
