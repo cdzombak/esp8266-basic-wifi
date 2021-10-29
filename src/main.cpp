@@ -1,21 +1,16 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>       // https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/readme.html
-#include <ESP8266mDNS.h>       // https://github.com/esp8266/Arduino/tree/master/libraries/ESP8266mDNS
 #include <ESP8266HTTPClient.h> // https://github.com/esp8266/Arduino/tree/master/libraries/ESP8266HTTPClient
 #include <WiFiClientSecureBearSSL.h>
-#include <CertStoreBearSSL.h>
 #include <BearSSLHelpers.h>
 #include <time.h> // NOLINT(modernize-deprecated-headers)
 #include <TZ.h>
-#include <FS.h>
-#include <LittleFS.h>
-#include <ArduinoJson.h> // https://arduinojson.org
-
 #define _TASK_SLEEP_ON_IDLE_RUN // NOLINT(bugprone-reserved-identifier)
 #include <TaskScheduler.h> // https://github.com/arkhipenko/TaskScheduler
 
 #include "led.h"
 #include "config.h"
+#include "certs.h"
 
 #define SERIAL_BAUD 115200
 
@@ -25,32 +20,26 @@
 
 // Scheduler & callback method prototypes
 Scheduler ts;
-bool ready = false;
 void connectInit();
-bool onMDNSEnable();
-void mDNSCallback();
 void connMonitorCallback();
 void httpsDemoCallback();
 
 // HTTPS Requests Demo
-#define EXT_IP_URL "https://ip.dzdz.cz"
+#define EXT_IP_URL "https://ip.dzdz.cz" // Exclusively uses certificates from Let's Encrypt
 #define HTTP_TASK_INTERVAL (TASK_SECOND*30)
-//#define USE_DYNAMIC_JSON_DOC // demos ArduinoJson's DynamicJsonDoc
-BearSSL::CertStore certStore;
-BearSSL::Session tlsSession;
 BearSSL::WiFiClientSecure wifiClient;
+BearSSL::X509List trustedRoots;
+// We could also write this, then append the second & any remaining certs in setup():
+// BearSSL::X509List trustedRoots(cert_ISRG_X1);
 
 // LED (all times in milliseconds)
 #define CONNECTED_LED_TIME_ON   (TASK_SECOND/5)
 #define CONNECTED_LED_TIME_OFF  (TASK_SECOND*1.5)
 #define CONNECTING_LED_TIME_ON  (TASK_SECOND/5)
 #define CONNECTING_LED_TIME_OFF CONNECTING_LED_TIME_ON
-#define CERT_ERR_LED_TIME_ON    (TASK_SECOND/1.5)
-#define CERT_ERR_LED_TIME_OFF   CERT_ERR_LED_TIME_ON
 
 // Tasks
 Task  tConnect     (TASK_SECOND, TASK_FOREVER, &connectInit, &ts, true);  // handles waiting on initial WiFi connection
-Task  tMDNS        (TASK_MILLISECOND*50, TASK_FOREVER, &mDNSCallback, &ts, false, &onMDNSEnable, nullptr);
 Task  tConnMonitor (TASK_SECOND, TASK_FOREVER, &connMonitorCallback, &ts, false);
 Task  tHttpsDemo   (HTTP_TASK_INTERVAL, TASK_FOREVER, &httpsDemoCallback, &ts, false);
 
@@ -79,29 +68,19 @@ void setClock() {
 void setup() {
     Serial.begin(SERIAL_BAUD);
 
-    LittleFS.begin();
-    int numCerts = certStore.initCertStore(LittleFS, PSTR("/certs.idx"), PSTR("/certs.ar"));
-    Serial.printf_P(PSTR("%lu: read %d CA certs into store\r\n"), millis(), numCerts);
-    if (numCerts == 0) {
-        Serial.println(F("!!! No certs found. Did you run certs-from-mozilla.py and upload the LittleFS directory?"));
-        blinkLED(CERT_ERR_LED_TIME_ON, CERT_ERR_LED_TIME_OFF);
-        return;
-    }
-    wifiClient.setCertStore(&certStore);
-    wifiClient.setSession(&tlsSession);
-    wifiClient.setSSLVersion(BR_TLS12, BR_TLS12);
+    trustedRoots.append(cert_ISRG_X1);
+    trustedRoots.append(cert_ISRG_X2);
 
-    ready = true;
+    wifiClient.setTrustAnchors(&trustedRoots);
+    wifiClient.setSSLVersion(BR_TLS12, BR_TLS12);
 }
 
 void loop() {
-    if (ready) { // ready flag blocks running the main program if startup tasks failed
-        ts.execute();
-    }
+    ts.execute();
 }
 
 /**
- * Get my external IP address and post it as the body to CFG_POST_URL.
+ * Get my external IP address and print it to the serial console.
  */
 void httpsDemoCallback() {
     HTTPClient httpClient;
@@ -115,36 +94,6 @@ void httpsDemoCallback() {
         Serial.printf_P(PSTR("%lu: HTTP %d\r\n"), millis(), respCode);
         getResult = httpClient.getString();
         Serial.printf_P(PSTR("\t%s\r\n"), getResult.c_str());
-    } else {
-        Serial.printf_P(PSTR("%lu: error: %s\r\n"), millis(), HTTPClient::errorToString(respCode).c_str());
-    }
-    httpClient.end();
-
-    if (respCode < 0 || respCode >= 400) {
-        return;
-    }
-
-    yield(); // esp8266 yield allows WiFi stack to run
-
-    String jsonBody;
-#ifdef USE_DYNAMIC_JSON_DOC
-    DynamicJsonDocument jsonDoc(96);
-#else
-    StaticJsonDocument<96> jsonDoc;
-#endif
-    jsonDoc["ext_ip"] = getResult;
-    jsonDoc["int_ip"] = WiFi.localIP().toString();
-    serializeJson(jsonDoc, jsonBody);
-
-    httpClient.setReuse(false); // holy hell, this took forever to figure out
-    httpClient.begin(wifiClient, CFG_POST_URL);
-    httpClient.addHeader(F("Content-Type"), F("application/json"));
-    Serial.printf_P(PSTR("%lu: Starting POST request to %s\r\n"), millis(), CFG_POST_URL);
-    respCode = httpClient.POST(jsonBody);
-    if (respCode >= 400) {
-        Serial.printf_P(PSTR("%lu: HTTP Error %d\r\n"), millis(), respCode);
-    } else if (respCode > 0) {
-        Serial.printf_P(PSTR("%lu: HTTP %d\r\n"), millis(), respCode);
     } else {
         Serial.printf_P(PSTR("%lu: error: %s\r\n"), millis(), HTTPClient::errorToString(respCode).c_str());
     }
@@ -163,7 +112,6 @@ void connectWait() {
         tConnect.disable();
 
         setClock(); // blocking call to set clock for x.509 validation as soon as WiFi is connected
-        tMDNS.enable();
         tConnMonitor.enable();
     }
 }
@@ -179,20 +127,6 @@ void connectInit() {
     blinkLED(CONNECTING_LED_TIME_ON, CONNECTING_LED_TIME_OFF);
     yield();  // esp8266 yield allows WiFi stack to run
     tConnect.yield(&connectWait);  // pass control to Scheduler; wait for initial WiFi connection
-}
-
-/**
- * Start the mDNS stack.
- */
-bool onMDNSEnable() {
-    return MDNS.begin(CFG_HOSTNAME);
-}
-
-/**
- * Keep the mDNS stack running.
- */
-void mDNSCallback() {
-    MDNS.update();
 }
 
 /**
