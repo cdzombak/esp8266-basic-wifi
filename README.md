@@ -33,4 +33,4 @@ Blog posts for these demos will eventually be posted at [dzombak.com/blog](https
 - [Initial Impressions of ESP8266 + Arduino *(October 15, 2021)*](https://www.dzombak.com/blog/2021/10/Initial-Impressions-of-ESP8266-Arduino.html)
 - [Shipping Data to InfluxDB using Arduino + ESP8266 *(October 15, 2021)*](https://www.dzombak.com/blog/2021/10/Shipping-Data-to-InfluxDB-using-Arduino-ESP8266.html)
 - [HTTPS Requests with a Root Certificate Store on ESP8266 + Arduino *(October 28, 2021)*](https://www.dzombak.com/blog/2021/10/HTTPS-Requests-with-a-Root-Certificate-Store-on-ESP8266-Arduino.html)
-- [HTTPS Requests with a Small Set of Root Certificates on ESP8266 + Arduino](https://www.dzombak.com/blog/2021/10/HTTPS-Requests-with-a-Small-Set-of-Root-Certificates-on-ESP8266-Arduino.html)
+- [HTTPS Requests with a Small Set of Root Certificates on ESP8266 + Arduino *(October 29, 2021)*](https://www.dzombak.com/blog/2021/10/HTTPS-Requests-with-a-Small-Set-of-Root-Certificates-on-ESP8266-Arduino.html)
